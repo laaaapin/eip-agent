@@ -29,7 +29,7 @@ LOG=logging.getLogger("eipAgent")
 
 DOMAIN="neutronNotifs"
 
-cfg.CONF.log_file = '/var/log/eipNotifs.log'
+cfg.CONF.log_file = '/var/log/kolla/eipNotifs.log'
 logging.register_options(cfg.CONF)
 logging.setup(cfg.CONF,DOMAIN)
 
