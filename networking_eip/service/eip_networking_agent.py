@@ -16,6 +16,7 @@ import eventlet
 eventlet.monkey_patch()
 
 import time
+import sys
 from oslo_config import cfg
 from oslo_service import service
 from oslo_log import log as logging
@@ -29,6 +30,7 @@ LOG=logging.getLogger("eipAgent")
 
 DOMAIN="neutronNotifs"
 
+cfg.CONF(sys.argv[1:])
 cfg.CONF.log_file = '/var/log/kolla/eipNotifs.log'
 logging.register_options(cfg.CONF)
 logging.setup(cfg.CONF,DOMAIN)
