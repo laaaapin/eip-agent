@@ -34,12 +34,25 @@ DOMAIN="neutronNotifs"
 # configuration (we read Neutron's config by default per README instructions).
 # This parses CLI args and loads /etc/neutron/neutron.conf so the
 # [oslo_messaging_notifications] settings are available to get_notification_transport.
+# Register a debug option so users can pass --debug to enable verbose logging
+debug_opt = cfg.BoolOpt('debug', default=False, help='Enable debug logging for agent and EIP REST calls')
+cfg.CONF.register_opt(debug_opt)
+
+# Parse CLI and config files
 cfg.CONF(sys.argv[1:], project='neutron', default_config_files=['/etc/neutron/neutron.conf'])
 
 # optional: override log file if running under kolla/containerized setups
 cfg.CONF.log_file = '/var/log/kolla/eipNotifs.log'
 logging.register_options(cfg.CONF)
 logging.setup(cfg.CONF, DOMAIN)
+
+# If debug flag is set, enable debug logging for oslo.messaging and module loggers
+if getattr(cfg.CONF, 'debug', False):
+    # set root logger to DEBUG
+    import logging as _std_logging
+    _std_logging.getLogger().setLevel(_std_logging.DEBUG)
+    # also ensure oslo.messaging is verbose
+    _std_logging.getLogger('oslo.messaging').setLevel(_std_logging.DEBUG)
 
 
 def create_addr_scope_handler(payload):

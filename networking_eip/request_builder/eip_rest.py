@@ -14,6 +14,7 @@
 
 
 import requests
+from oslo_config import cfg
 import netaddr
 import json
 from networking_eip.request_builder import request_builder
@@ -21,6 +22,30 @@ from oslo_log import log as logging
 
 
 LOG = logging.getLogger(__name__)
+
+
+def _debug_enabled():
+    try:
+        return bool(getattr(cfg.CONF, 'debug', False))
+    except Exception:
+        return False
+
+
+def _req(method, url, headers=None, **kwargs):
+    # Centralized request wrapper that logs request/response when debug is enabled
+    if _debug_enabled():
+        LOG.debug('EIP REST REQ %s %s headers=%s params=%s json=%s',
+                  method, url, headers, kwargs.get('params'), kwargs.get('json'))
+    # Ensure verify=False is set if not provided (existing code used verify=False everywhere)
+    if 'verify' not in kwargs:
+        kwargs['verify'] = False
+    r = requests.request(method, url, headers=headers, **kwargs)
+    if _debug_enabled():
+        try:
+            LOG.debug('EIP REST RESP status=%s text=%s', r.status_code, r.text)
+        except Exception:
+            LOG.debug('EIP REST RESP status=%s (failed to read body)', r.status_code)
+    return r
 
 def add_columns(ipv6Addr):
     ret_ipv6 = ipv6Addr[:4]+':'+ipv6Addr[4:8]+':'+ipv6Addr[8:12]+':'+ipv6Addr[12:16]+':'+\
@@ -32,7 +57,7 @@ def get_site_list(site_name):
     url, headers = request_builder.requestBuilder.buildRequest('ip_site_list')
     data = dict()
     data['WHERE'] = "site_name='"+site_name+"'"
-    r = requests.get(url,headers=headers,params=data,verify=False)
+    r = _req('GET', url, headers=headers, params=data)
     if r.status_code == 200:
         return 1
     else:
@@ -97,11 +122,9 @@ def get_subnet_list_v6(start_addr,sitename,subnetpool_name):
         start_addr_hexa = hex(netaddr.IPAddress(start_addr))[2:]
         data['WHERE'] += "AND start_ip6_addr='"+start_addr_hexa+"'"
 
-    r = requests.get(url,headers=headers,params=data,verify=False)
-
+    r = _req('GET', url, headers=headers, params=data)
     if r.status_code == 200:
         return r.json()[0]
-
     else:
         return None
 
@@ -115,8 +138,8 @@ def get_block_subnet_list_v4(start_addr,sitename,name):
             start_addr_hexa+"' AND subnet_name='"+name+"'"
 
 
-    r = requests.get(url,headers=headers,params=data,verify=False)
-    LOG.debug('get_block_subnet_list_v4 URL: %s', r.url)
+    r = _req('GET', url, headers=headers, params=data)
+    LOG.debug('get_block_subnet_list_v4 URL: %s', getattr(r, 'url', url))
     try:
         if r.status_code == 200:
             r_json = r.json()
@@ -143,8 +166,8 @@ def get_block_subnet_list_v6(start_addr,sitename,name):
     data['WHERE'] = "subnet_level='0' AND site_name='" + sitename +"' AND start_ip6_addr='"+\
             start_addr_hexa+"' AND subnet6_name='"+name+"'"
 
-    r = requests.get(url,headers=headers,params=data,verify=False)
-    LOG.debug('get_block_subnet_list_v6 URL: %s', r.url)
+    r = _req('GET', url, headers=headers, params=data)
+    LOG.debug('get_block_subnet_list_v6 URL: %s', getattr(r, 'url', url))
     try:
         if r.status_code == 200:
             r_json = r.json()
@@ -174,7 +197,7 @@ def create_block_subnet_v4(start_addr,prefix,site_name,subnet_block_name):
     data['subnet_name'] = subnet_block_name
     data['site_name'] = site_name
 
-    r = requests.post(url,headers=headers,json=data,verify=False)
+    r = _req('POST', url, headers=headers, json=data)
 
     if r.status_code == 201:
         r_json = r.json()
@@ -193,7 +216,7 @@ def create_block_subnet_v6(start_addr,prefix,site_name,subnet_block_name):
     data['subnet6_name'] = subnet_block_name
     data['site_name'] = site_name
 
-    r = requests.post(url,headers=headers,json=data,verify=False)
+    r = _req('POST', url, headers=headers, json=data)
 
     if r.status_code == 201:
         r_json = r.json()
@@ -210,8 +233,8 @@ def get_free_subnet_v4(block_id,prefixlen):
     url,headers = request_builder.requestBuilder.buildRequest('ip_find_free_subnet')
     data['WHERE'] = "block_id='"+block_id+"'"
     data['prefix'] = prefixlen
-    r = requests.get(url,headers=headers,params=data,verify=False)
-    LOG.debug('get_free_subnet_v4 URL: %s', r.url)
+    r = _req('GET', url, headers=headers, params=data)
+    LOG.debug('get_free_subnet_v4 URL: %s', getattr(r, 'url', url))
     LOG.debug('get_free_subnet_v4 status: %s', r.status_code)
     try:
         if r.status_code == 200:
@@ -231,7 +254,7 @@ def get_free_subnet_v6(block_id,prefixlen):
     url,headers = request_builder.requestBuilder.buildRequest('ip6_find_free_subnet6')
     data['WHERE'] = "block6_id='"+block_id+"'"
     data['prefix'] = prefixlen
-    r = requests.get(url,headers=headers,params=data,verify=False)
+    r = _req('GET', url, headers=headers, params=data)
 
     if r.status_code == 200:
         r_json = r.json()
@@ -252,7 +275,7 @@ def create_subnet_v4(block_id,subnet_name=None,start_addr=None,prefix=0):
         data['subnet_name'] = subnet_name
     data['parent_subnet_id'] = block_id
 
-    r = requests.post(url,headers=headers,json=data,verify=False)
+    r = _req('POST', url, headers=headers, json=data)
     if r.status_code == 201:
         r_json = r.json()
         return r_json[0]['ret_oid']
@@ -268,7 +291,7 @@ def create_subnet_v6(block_id,subnet_name=None,start_addr=None,prefix=0):
     if subnet_name is not None:
         data['subnet6_name'] = subnet_name
     data['parent_subnet6_id'] = block_id
-    r = requests.post(url,headers=headers,json=data,verify=False)
+    r = _req('POST', url, headers=headers, json=data)
     LOG.error(r.url)
     LOG.error(str(data))
     if r.status_code == 201:
@@ -364,7 +387,7 @@ def create_allocation_pool_v4(subnet_id,start_addr,end_addr):
     data['subnet_id'] = subnet_id
     data['start_addr'] = str(netaddr.IPAddress(start_addr))
     data['end_addr'] = str(netaddr.IPAddress(end_addr))
-    r = requests.post(url,headers=headers,json=data,verify=False)
+    r = _req('POST', url, headers=headers, json=data)
 
     if r.status_code == 201:
         return 1
@@ -393,7 +416,7 @@ def delete_allocation_pool_v4(subnet_id,start_addr,end_addr):
     data['subnet_id'] = str(subnet_id)
     data['start_addr'] = str(netaddr.IPAddress(start_addr))
     data['end_addr']   = str(netaddr.IPAddress(end_addr))
-    r = requests.delete(url,headers=headers,json=data,verify=False)
+    r = _req('DELETE', url, headers=headers, json=data)
 
     if r.status_code == 200:
         return 1
@@ -421,7 +444,7 @@ def get_allocation_pool_list_v4(subnet_id):
     data=dict()
     url, headers = request_builder.requestBuilder.buildRequest('ip_pool_list')
     data['WHERE'] = "subnet_id='"+subnet_id+"'"
-    r = requests.get(url,headers=headers,params=data,verify=False)
+    r = _req('GET', url, headers=headers, params=data)
 
     if r.status_code == 200:
         r_json = r.json()
@@ -436,7 +459,7 @@ def get_allocation_pool_list_v6(subnet_id):
     data=dict()
     url, headers = request_builder.requestBuilder.buildRequest('ip6_pool6_list')
     data['WHERE'] = "subnet6_id='"+subnet_id+"'"
-    r = requests.get(url,headers=headers,params=data,verify=False)
+    r = _req('GET', url, headers=headers, params=data)
 
     if r.status_code == 200:
         r_json = r.json()
@@ -459,7 +482,7 @@ def allocate_address_v4(sitename,address,name,mac):
     if mac != '':
         data['mac_addr'] = mac
 
-    r = requests.post(url,headers=headers,json=data,verify=False)
+    r = _req('POST', url, headers=headers, json=data)
 
     if r.status_code == 201:
         return 1
@@ -520,7 +543,7 @@ def deallocate_address_v4(sitename,address):
     data['site_name'] = sitename
     data['hostaddr']  = str(address)
 
-    r = requests.delete(url,headers=headers,json=data,verify=False)
+    r = _req('DELETE', url, headers=headers, json=data)
     if r.status_code == 200:
         return 1
 
@@ -535,7 +558,7 @@ def deallocate_address_v6(sitename,address):
     data['site_name'] = sitename
     data['hostaddr']  = str(address)
 
-    r = requests.delete(url,headers=headers,json=data,verify=False)
+    r = _req('DELETE', url, headers=headers, json=data)
     if r.status_code == 200:
         return 1
 
