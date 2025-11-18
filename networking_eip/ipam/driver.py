@@ -42,6 +42,13 @@ import networking_eip.request_builder.eip_rest as eip_rest
 LOG = logging.getLogger(__name__)
 
 
+def _eip_debug_enabled():
+    try:
+        return bool(getattr(cfg.CONF, 'eip_debug', False))
+    except Exception:
+        return False
+
+
 class RequestNotSupported(neutron_lib_exc.NeutronException):
     message = _("IPAM error : '%(msg)s' ")
 
@@ -116,9 +123,13 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
         :type subnet_pool_id: str uuid
         """
         LOG.info("eip driver : Init")
+        if _eip_debug_enabled():
+            LOG.debug('eipPool.__init__ subnetpool=%s context=%s', subnetpool, context)
         super(eipPool, self).__init__(subnetpool, context)
 
         LOG.info("eip driver : Init successful")
+        if _eip_debug_enabled():
+            LOG.debug('eip driver initialized successfully')
 
     @retrieveContainersFromNeutron
     def get_subnet(self, subnet_id):
@@ -129,6 +140,9 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
         :returns: An instance of IPAM Subnet
         :raises: IPAMAllocationNotFound
         """
+
+        if _eip_debug_enabled():
+            LOG.debug('get_subnet called subnet_id=%s subnet_json=%s', subnet_id, self.subnet_json)
 
         subnet_request = neutron_ipam_req.SpecificSubnetRequest(self.subnet_json['tenant_id'],subnet_id,
                         self.subnet_json['cidr'],None,[])
@@ -146,7 +160,8 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
         if s is None:
             LOG.error('Failed to retrieve %s in IPAM', subnet_id)
             raise neutron_lib_exc.SubnetNotFound(subnet_id=subnet_id)
-
+        if _eip_debug_enabled():
+            LOG.debug('get_subnet succeeded for %s (eip data=%s)', subnet_id, s)
 
         ret = eipSubnet(subnet_request)
         return ret
@@ -163,6 +178,8 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
         """
 
         LOG.info("eip driver : Entering allocate_subnet")
+        if _eip_debug_enabled():
+            LOG.debug('allocate_subnet request=%s _subnetpool=%s', request, self._subnetpool)
 
         subnet = eipSubnet(request)
 
@@ -172,6 +189,8 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
 
 
         siteFromIpam = eip_rest.get_site_list(site_name=self.sitename)
+        if _eip_debug_enabled():
+            LOG.debug('siteFromIpam=%s', siteFromIpam)
 
         if siteFromIpam is None:
             LOG.info('Creating site %s', self.sitename)
@@ -190,6 +209,8 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
 
         if blockFromIpam is None:
             LOG.info('Creating block %s', self._subnetpool['name'])
+            if _eip_debug_enabled():
+                LOG.debug('blockFromIpam was None, creating block for %s', self._subnetpool['name'])
             #TODO : handle multiple prefixes: for p in self._subnetpool['prefixes']:
             data = dict()
             if self._subnetpool['ip_version'] == 4:
@@ -223,6 +244,8 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
         if subnet.cidr is None:
             if self._subnetpool['ip_version'] == 4:
                 freeSubnet =  eip_rest.get_free_subnet_v4(blockFromIpam,subnet.prefixlen)
+                if _eip_debug_enabled():
+                    LOG.debug('freeSubnet v4 result=%s', freeSubnet)
                 if freeSubnet is None:
                     LOG.error("Could not find a free subnet")
                     raise ipam_exc.InvalidAddressRequest(reason="Could not find a range for prefix "+str(subnet.prefixlen))
@@ -234,6 +257,9 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
                     raise ipam_exc.InvalidAddressRequest(reason="Could not find a range for prefix "+str(subnet.prefixlen))
 
             subnet.cidr = freeSubnet
+
+        if _eip_debug_enabled():
+            LOG.debug('Allocated subnet.cidr=%s', subnet.cidr)
 
         if self._subnetpool['ip_version'] == 4:
             subnet_name = request.subnet_name if hasattr(request,"subnet_name") else None
@@ -251,6 +277,9 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
         if subnet_id is None:
             LOG.error("Subnet creation failed")
             raise RequestNotSupported(msg="Could not create subnet "+request.subnet_name if hasattr(request,"subnet_name") else "<No Name>")
+        else:
+            if _eip_debug_enabled():
+                LOG.debug('Created subnet id=%s', subnet_id)
 
 
         if self._subnetpool['ip_version'] == 4:
@@ -279,6 +308,8 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
         """
 
         LOG.info("eip driver : Entering update_subnet")
+        if _eip_debug_enabled():
+            LOG.debug('update_subnet request=%s subnet_json=%s pool_json=%s', request, self.subnet_json, self.pool_json)
 
         subnet_from_request = eipSubnet(request)
 
@@ -308,11 +339,15 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
                 # Use int(..., 16) on Python 3 instead of long(..., 16).
                 a = netaddr.IPRange(int(p['start_ip_addr'], 16), int(p['end_ip_addr'], 16))
                 LOG.info('Add to current_pools : %s', a)
+                if _eip_debug_enabled():
+                    LOG.debug('current pool entry: %s', p)
                 current_pools.add(a)
             for p in subnet_from_request.pools:
                 start_ip,_,end_ip = str(p).partition('-')
                 a = netaddr.IPRange(start_ip,end_ip)
                 LOG.info('Add to new_pools : %s', a)
+                if _eip_debug_enabled():
+                    LOG.debug('new pool entry: %s', p)
                 new_pools.add(a)
 
 
@@ -322,9 +357,13 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
             pools_to_remove = current_pools.difference(new_pools)
 
             for p in pools_to_remove:
+                if _eip_debug_enabled():
+                    LOG.debug('Removing pool: %s', p)
                 eip_rest.delete_allocation_pool_v4(subnetFromIpam['subnet_id'],p.first,p.last)
 
             for p in pools_to_create:
+                if _eip_debug_enabled():
+                    LOG.debug('Creating pool: %s', p)
                 eip_rest.create_allocation_pool_v4(subnetFromIpam['subnet_id'],p.first,p.last)
 
 
@@ -350,12 +389,16 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
                 ipv6_addr_end   =  eip_rest.add_columns(p['end_ip6_addr'])
                 a = netaddr.IPRange(ipv6_addr_start,ipv6_addr_end)
                 LOG.info('Add to current_pools : %s', a)
+                if _eip_debug_enabled():
+                    LOG.debug('current pool entry (v6): %s', p)
                 current_pools.add(a)
 
             for p in subnet_from_request.pools:
                 start_ip,_,end_ip = str(p).partition('-')
                 a = netaddr.IPRange(start_ip,end_ip)
                 LOG.info('Add to new_pools : %s', a)
+                if _eip_debug_enabled():
+                    LOG.debug('new pool entry (v6): %s', p)
                 new_pools.add(a)
 
 
@@ -365,9 +408,13 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
             pools_to_remove = current_pools.difference(new_pools)
 
             for p in pools_to_remove:
+                if _eip_debug_enabled():
+                    LOG.debug('Removing pool (v6): %s', p)
                 eip_rest.delete_allocation_pool_v6(subnetFromIpam['subnet6_id'],p.first,p.last)
 
             for p in pools_to_create:
+                if _eip_debug_enabled():
+                    LOG.debug('Creating pool (v6): %s', p)
                 eip_rest.create_allocation_pool_v6(subnetFromIpam['subnet6_id'],p.first,p.last)
 
 
@@ -449,6 +496,8 @@ class eipSubnet(driver.Subnet):
         # warning : doc says it must return a netaddr.ip address but the calling code expects a string
 
         LOG.info("Allocate an eip address")
+        if _eip_debug_enabled():
+            LOG.debug('allocate called address_request=%s subnet_json=%s', address_request, self.subnet_json)
         addressToReturn = None
 
         if isinstance(address_request,neutron_ipam_req.SpecificAddressRequest) or isinstance(address_request,neutron_ipam_req.RouterGatewayAddressRequest):
@@ -456,8 +505,12 @@ class eipSubnet(driver.Subnet):
             ## SpecificAddressRequest or AutomaticAddressRequest(such as ipv6 slaac or custom randomizer)
             if self.subnet_json['ip_version'] == 4:
                 res = eip_rest.allocate_address_v4(self.sitename,str(address_request.address),address_request.name,address_request.mac)
+                if _eip_debug_enabled():
+                    LOG.debug('allocate_address_v4 result=%s', res)
             elif self.subnet_json['ip_version'] == 6:
                 res = eip_rest.allocate_address_v6(self.sitename,str(address_request.address),address_request.name,address_request.mac)
+                if _eip_debug_enabled():
+                    LOG.debug('allocate_address_v6 result=%s', res)
 
             if res is None:
                 raise ipam_exc.IpAddressAlreadyAllocated(ip=str(address_request.address), subnet_id=self.subnet_id)
@@ -476,8 +529,12 @@ class eipSubnet(driver.Subnet):
                     raise ipam_exc.IpAddressGenerationFailure(subnet_id=subnetFromIpam['subnet_id'])
 
                 LOG.info('Address %s will be allocated', freeAddr)
+                if _eip_debug_enabled():
+                    LOG.debug('freeAddr=%s subnetFromIpam=%s', freeAddr, subnetFromIpam)
 
                 res = eip_rest.allocate_address_v4(self.sitename,freeAddr,address_request.name,address_request.mac)
+                if _eip_debug_enabled():
+                    LOG.debug('allocate_address_v4 result=%s', res)
                 if res is None:
                     LOG.error('Failed to allocate %s', freeAddr)
                     raise ipam_exc.IpAddressAlreadyAllocated(ip=str(freeAddr), subnet_id=subnetFromIpam['subnet_id'])
@@ -491,8 +548,12 @@ class eipSubnet(driver.Subnet):
                     raise ipam_exc.IpAddressGenerationFailure(subnet_id=subnetFromIpam['subnet6_id'])
 
                 LOG.info('Address %s will be allocated', freeAddr)
+                if _eip_debug_enabled():
+                    LOG.debug('freeAddr v6=%s subnetFromIpam=%s', freeAddr, subnetFromIpam)
 
                 res = eip_rest.allocate_address_v6(self.sitename,freeAddr,address_request.name,address_request.mac)
+                if _eip_debug_enabled():
+                    LOG.debug('allocate_address_v6 result=%s', res)
                 if res is None:
                     LOG.error('Failed to allocate %s', freeAddr)
                     raise ipam_exc.IpAddressAlreadyAllocated(ip=str(freeAddr), subnet_id=subnetFromIpam['subnet6_id'])
@@ -516,6 +577,8 @@ class eipSubnet(driver.Subnet):
         """
 
         LOG.info('Trying to deallocate: %s', address)
+        if _eip_debug_enabled():
+            LOG.debug('deallocate called address=%s subnet_json=%s', address, self.subnet_json)
 
         if self.subnet_json['ip_version'] == 4:
             ret = eip_rest.deallocate_address_v4(self.sitename,address)
