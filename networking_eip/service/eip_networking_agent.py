@@ -49,6 +49,8 @@ logging.register_options(cfg.CONF)
 # eip agent (e.g. REST call tracing) via `--eip_debug`.
 eip_debug_opt = cfg.BoolOpt('eip_debug', default=False, help='Enable EIP agent specific debug logging and REST tracing')
 cfg.CONF.register_cli_opt(eip_debug_opt)
+eip_self_test_opt = cfg.BoolOpt('eip_self_test', default=False, help='Send a self-test notification on startup to validate listener')
+cfg.CONF.register_cli_opt(eip_self_test_opt)
 
 # Parse CLI and config files
 cfg.CONF(sys.argv[1:], project='neutron', default_config_files=['/etc/neutron/neutron.conf'])
@@ -208,7 +210,28 @@ class EipNetworkingAgent(object):
             raise
 
     def start(self):
+        # start the notification server. We may send a self-test notification
+        # from a background thread to validate the listener is receiving messages.
         self.server.start()
+
+        if getattr(cfg.CONF, 'eip_self_test', False):
+            def _send_selftest():
+                try:
+                    # small delay to let the server fully start
+                    import time as _t
+                    _t.sleep(1.0)
+                    notifier = oslo_messaging.Notifier(self.transport, publisher_id='eip.selftest')
+                    payload = {'selftest': True, 'msg': 'eip_agent selftest'}
+                    # use simple info signature
+                    notifier.info({}, 'eip.selftest', payload)
+                    LOG.info('Self-test notification sent')
+                except Exception:
+                    LOG.exception('Failed to send self-test notification')
+
+            t = threading.Thread(target=_send_selftest, name='eip-selftest', daemon=True)
+            t.start()
+
+        # block until server stops
         self.server.wait()
 
     def stop(self):
