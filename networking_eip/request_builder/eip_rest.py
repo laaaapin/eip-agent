@@ -566,3 +566,65 @@ def deallocate_address_v6(sitename,address):
 
     else:
         return None
+
+
+# ---------------------------------------------------------------------------
+# API probe helpers
+# ---------------------------------------------------------------------------
+ENDPOINT_PROBES = [
+    'ip_site_list', 'ip_site_add', 'ip_site_delete',
+    'ip_block_subnet_list', 'ip6_block6_subnet6_list',
+    'ip_subnet_add', 'ip6_subnet6_add', 'ip_subnet_delete', 'ip6_subnet6_delete',
+    'ip_find_free_subnet', 'ip6_find_free_subnet6',
+    'ip_pool_add', 'ip6_pool6_add', 'ip_pool_delete', 'ip6_pool6_delete',
+    'ip_pool_list', 'ip6_pool6_list',
+    'ip_add', 'ip6_address6_add', 'ip_delete', 'ip6_address6_delete',
+    'ip_find_free_address', 'ip6_find_free_address6'
+]
+
+
+def verify_api_endpoints(queries=None, timeout=5):
+    """Probe the SolidServer endpoints used by this module.
+
+    This helper attempts a simple GET request to each named endpoint and
+    records the HTTP status or exception. It cannot determine precise
+    parameter requirements for RPC endpoints, but it gives a quick view of
+    which REST/RPC paths exist and respond on the configured SolidServer.
+
+    Returns a dict: { query_name: { 'ok': bool, 'status': int|None, 'reason': str } }
+    """
+    if queries is None:
+        queries = ENDPOINT_PROBES
+
+    results = {}
+    for q in queries:
+        try:
+            url, headers = request_builder.requestBuilder.buildRequest(q)
+        except Exception as e:
+            results[q] = {'ok': False, 'status': None, 'reason': f'buildRequest failed: {e}'}
+            continue
+
+        try:
+            r = _req('GET', url, headers=headers, timeout=timeout)
+            status = getattr(r, 'status_code', None)
+            # Treat common positive responses (200,201,204) and "method not allowed"
+            # or auth failures as evidence the endpoint exists (405/401/403).
+            ok = status in (200, 201, 204, 401, 403, 405)
+            results[q] = {'ok': ok, 'status': status, 'reason': None}
+        except Exception as e:
+            results[q] = {'ok': False, 'status': None, 'reason': str(e)}
+
+    return results
+
+
+def print_api_probe_report(results, out=LOG.info):
+    """Pretty-print the probe results using provided output callable.
+
+    `out` defaults to LOG.info but can be any callable like print.
+    """
+    for q, info in results.items():
+        if info['ok']:
+            out('OK   %-30s status=%s', q, info['status'])
+        else:
+            out('FAIL %-30s status=%s reason=%s', q, info['status'], info['reason'])
+
