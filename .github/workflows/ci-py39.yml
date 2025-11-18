@@ -1,0 +1,33 @@
+name: Python 3.9 CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  py3-compat:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install flake8
+      - name: Byte-compile all Python files
+        run: |
+          git ls-files "*.py" | xargs -n 50 python -m py_compile
+      - name: Import smoke tests
+        run: |
+          python -c "import networking_eip.ipam.driver as d; import networking_eip.service.eip_networking_agent as a; print('imports ok')"
+      - name: Run flake8
+        run: flake8 || true

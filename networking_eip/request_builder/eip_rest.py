@@ -36,6 +36,7 @@ def get_site_list(site_name):
     if r.status_code == 200:
         return 1
     else:
+        LOG.error('get_site_list failed: %s %s', r.status_code, getattr(r, 'text', ''))
         return None
 
 def create_site(site_name):
@@ -46,6 +47,7 @@ def create_site(site_name):
     if r.status_code == 201:
         return 1
     else:
+        LOG.error('create_site failed: %s %s', r.status_code, getattr(r, 'text', ''))
         return None
 
 def delete_site(site_name):
@@ -56,6 +58,7 @@ def delete_site(site_name):
     if r.status_code == 201:
         return 1
     else:
+        LOG.error('delete_site failed: %s %s', r.status_code, getattr(r, 'text', ''))
         return None
 
 
@@ -72,12 +75,15 @@ def get_subnet_list_v4(start_addr,sitename,subnetpool_name):
 
 
     r = requests.get(url,headers=headers,params=data,verify=False)
-    LOG.error(r.url)
-
-    if r.status_code == 200:
-        return r.json()[0]
-
-    else:
+    LOG.debug('get_subnet_list_v4 URL: %s', r.url)
+    try:
+        if r.status_code == 200:
+            return r.json()[0]
+        else:
+            LOG.error('get_subnet_list_v4 failed: %s %s', r.status_code, getattr(r, 'text', ''))
+            return None
+    except Exception:
+        LOG.exception('Failed to parse get_subnet_list_v4 response: %s', getattr(r, 'text', None))
         return None
 
 
@@ -110,13 +116,19 @@ def get_block_subnet_list_v4(start_addr,sitename,name):
 
 
     r = requests.get(url,headers=headers,params=data,verify=False)
-
-    if r.status_code == 200:
-        r_json = r.json()
-        block_id = r_json[0]['subnet_id']
-
-    elif r.status_code == 204:
-        # No content, which means the block does not exist
+    LOG.debug('get_block_subnet_list_v4 URL: %s', r.url)
+    try:
+        if r.status_code == 200:
+            r_json = r.json()
+            block_id = r_json[0]['subnet_id']
+        elif r.status_code == 204:
+            # No content, which means the block does not exist
+            block_id = None
+        else:
+            LOG.error('get_block_subnet_list_v4 failed: %s %s', r.status_code, getattr(r, 'text', ''))
+            block_id = None
+    except Exception:
+        LOG.exception('Failed to parse get_block_subnet_list_v4 response: %s', getattr(r, 'text', None))
         block_id = None
 
     return block_id
@@ -132,12 +144,19 @@ def get_block_subnet_list_v6(start_addr,sitename,name):
             start_addr_hexa+"' AND subnet6_name='"+name+"'"
 
     r = requests.get(url,headers=headers,params=data,verify=False)
-    if r.status_code == 200:
-        r_json = r.json()
-        block_id = r_json[0]['subnet6_id']
-
-    elif r.status_code == 204:
-        # No content, which means the block does not exist
+    LOG.debug('get_block_subnet_list_v6 URL: %s', r.url)
+    try:
+        if r.status_code == 200:
+            r_json = r.json()
+            block_id = r_json[0]['subnet6_id']
+        elif r.status_code == 204:
+            # No content, which means the block does not exist
+            block_id = None
+        else:
+            LOG.error('get_block_subnet_list_v6 failed: %s %s', r.status_code, getattr(r, 'text', ''))
+            block_id = None
+    except Exception:
+        LOG.exception('Failed to parse get_block_subnet_list_v6 response: %s', getattr(r, 'text', None))
         block_id = None
 
 
@@ -192,16 +211,18 @@ def get_free_subnet_v4(block_id,prefixlen):
     data['WHERE'] = "block_id='"+block_id+"'"
     data['prefix'] = prefixlen
     r = requests.get(url,headers=headers,params=data,verify=False)
-
-    LOG.error(r.url)
-    LOG.error(str(r.status_code))
-
-    if r.status_code == 200:
-        r_json = r.json()
-        startAddr = netaddr.IPAddress('0x'+str(r_json[0]['start_ip_addr']))
-        return netaddr.IPNetwork(str(startAddr)+'/'+str(prefixlen))
-
-    else:
+    LOG.debug('get_free_subnet_v4 URL: %s', r.url)
+    LOG.debug('get_free_subnet_v4 status: %s', r.status_code)
+    try:
+        if r.status_code == 200:
+            r_json = r.json()
+            startAddr = netaddr.IPAddress('0x'+str(r_json[0]['start_ip_addr']))
+            return netaddr.IPNetwork(str(startAddr)+'/'+str(prefixlen))
+        else:
+            LOG.error('get_free_subnet_v4 failed: %s %s', r.status_code, getattr(r, 'text', ''))
+            return None
+    except Exception:
+        LOG.exception('Failed to parse get_free_subnet_v4 response: %s', getattr(r, 'text', None))
         return None
 
 
@@ -473,7 +494,8 @@ def get_free_address_v4(subnetId):
     r = requests.get(url,headers=headers,params=data,verify=False)
     try:
         return r.json()[0]['hostaddr']
-    except:
+    except Exception:
+        LOG.exception('Failed to parse get_free_address_v4 response: %s', getattr(r, 'text', None))
         return None
 
 
@@ -487,7 +509,8 @@ def get_free_address_v6(subnetId):
     r = requests.get(url,headers=headers,params=data,verify=False)
     try:
         return r.json()[0]['hostaddr6']
-    except:
+    except Exception:
+        LOG.exception('Failed to parse get_free_address_v6 response: %s', getattr(r, 'text', None))
         return None
 
 

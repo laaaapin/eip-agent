@@ -24,6 +24,9 @@ from oslo_config import cfg
 
 import oslo_messaging
 
+# Import translation helper (provides _())
+from networking_eip._i18n import _
+
 from neutron.ipam import driver
 from neutron_lib import exceptions as neutron_lib_exc
 from neutron.ipam import requests as neutron_ipam_req
@@ -48,23 +51,47 @@ def retrieveContainersFromNeutron(function):
     def wrap_function(*args,**kwargs):
         if isinstance(args[0],eipPool):
             if args[0]._subnetpool is not None:
-                args[0].scope_json = connector.NeutronConnector().get_connector().list_address_scopes(id=args[0]._subnetpool['address_scope_id'])['address_scopes'][0]
+                resp = connector.NeutronConnector().list_resource('address_scopes', id=args[0]._subnetpool['address_scope_id'])
+                args[0].scope_json = resp['address_scopes'][0] if resp and 'address_scopes' in resp and resp['address_scopes'] else None
             else:
                 subnet_id = args[1].subnet_id if hasattr(args[1],'subnet_id') else args[1]
-                args[0].subnet_json = connector.NeutronConnector().get_connector().list_subnets(id=subnet_id)['subnets'][0]
-                args[0].pool_json = connector.NeutronConnector().get_connector().list_subnetpools(id=args[0].subnet_json['subnetpool_id'])['subnetpools'][0] if args[0].subnet_json['subnetpool_id'] else None
-                args[0].scope_json = connector.NeutronConnector().get_connector().list_address_scopes(id=args[0].pool_json['address_scope_id'])['address_scopes'][0] if args[0].pool_json and args[0].pool_json['address_scope_id'] else None
+                resp = connector.NeutronConnector().list_resource('subnets', id=subnet_id)
+                args[0].subnet_json = resp['subnets'][0] if resp and 'subnets' in resp and resp['subnets'] else None
+                if args[0].subnet_json and args[0].subnet_json.get('subnetpool_id'):
+                    resp2 = connector.NeutronConnector().list_resource('subnetpools', id=args[0].subnet_json['subnetpool_id'])
+                    args[0].pool_json = resp2['subnetpools'][0] if resp2 and 'subnetpools' in resp2 and resp2['subnetpools'] else None
+                else:
+                    args[0].pool_json = None
+                if args[0].pool_json and args[0].pool_json.get('address_scope_id'):
+                    resp3 = connector.NeutronConnector().list_resource('address_scopes', id=args[0].pool_json['address_scope_id'])
+                    args[0].scope_json = resp3['address_scopes'][0] if resp3 and 'address_scopes' in resp3 and resp3['address_scopes'] else None
+                else:
+                    args[0].scope_json = None
 
 
         elif isinstance(args[0],eipSubnet):
-            args[0].subnet_json = connector.NeutronConnector().get_connector().list_subnets(id=args[0].subnet_id)['subnets'][0]
-            args[0].pool_json = connector.NeutronConnector().get_connector().list_subnetpools(id=args[0].subnet_json['subnetpool_id'])['subnetpools'][0]
-            args[0].scope_json = connector.NeutronConnector().get_connector().list_address_scopes(id=args[0].pool_json['address_scope_id'])['address_scopes'][0]
+            resp = connector.NeutronConnector().list_resource('subnets', id=args[0].subnet_id)
+            args[0].subnet_json = resp['subnets'][0] if resp and 'subnets' in resp and resp['subnets'] else None
+            resp2 = connector.NeutronConnector().list_resource('subnetpools', id=args[0].subnet_json['subnetpool_id'])
+            args[0].pool_json = resp2['subnetpools'][0] if resp2 and 'subnetpools' in resp2 and resp2['subnetpools'] else None
+            resp3 = connector.NeutronConnector().list_resource('address_scopes', id=args[0].pool_json['address_scope_id'])
+            args[0].scope_json = resp3['address_scopes'][0] if resp3 and 'address_scopes' in resp3 and resp3['address_scopes'] else None
 
         if args[0].scope_json is None:
-            # This subnet is not complient with our IPAM : it has no site
-            LOG.error("Failed : to retrieve "+subnet_id+" in IPAM")
-            raise neutron_lib_exc.SubnetNotFound(subnet_id=subnet_id)
+            # This subnet is not compliant with our IPAM : it has no site
+            # subnet_id may not be defined on all code paths above, avoid
+            # referencing it directly to prevent NameError hiding the real
+            # error. Compute a safe fallback for logging and for the
+            # SubnetNotFound exception.
+            try:
+                sid = locals().get('subnet_id')
+                if sid is None:
+                    sid = args[1].subnet_id if (len(args) > 1 and hasattr(args[1], 'subnet_id')) else (args[1] if len(args) > 1 else None)
+            except Exception:
+                sid = None
+
+            LOG.error("Failed to retrieve subnet in IPAM (subnet_id=%s)", sid)
+            raise neutron_lib_exc.SubnetNotFound(subnet_id=sid)
 
         args[0].sitename = args[0].scope_json['name']
 
@@ -117,7 +144,7 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
             s = eip_rest.get_subnet_list_v6(start_addr,self.sitename,subnetpool_name)
 
         if s is None:
-            LOG.error("Failed : to retrieve "+subnet_id+" in IPAM")
+            LOG.error('Failed to retrieve %s in IPAM', subnet_id)
             raise neutron_lib_exc.SubnetNotFound(subnet_id=subnet_id)
 
 
@@ -147,7 +174,7 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
         siteFromIpam = eip_rest.get_site_list(site_name=self.sitename)
 
         if siteFromIpam is None:
-            LOG.info("Creating site "+self.sitename)
+            LOG.info('Creating site %s', self.sitename)
             siteFromIpam = eip_rest.create_site(site_name=self.sitename)
             if siteFromIpam is None:
                 raise RequestNotSupported(msg="Could not create site "+self.sitename)
@@ -162,7 +189,7 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
             blockFromIpam = eip_rest.get_block_subnet_list_v6(self._subnetpool['prefixes'][0].ip,self.sitename, self._subnetpool['name'])
 
         if blockFromIpam is None:
-            LOG.info("Creating block "+self._subnetpool['name'])
+            LOG.info('Creating block %s', self._subnetpool['name'])
             #TODO : handle multiple prefixes: for p in self._subnetpool['prefixes']:
             data = dict()
             if self._subnetpool['ip_version'] == 4:
@@ -179,7 +206,7 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
                         self._subnetpool['name'])
 
             if blockFromIpam is None:
-                LOG.error("Failed to create block "+self._subnetpool['name'])
+                LOG.error('Failed to create block %s', self._subnetpool['name'])
                 raise RequestNotSupported(msg="Could not create block "+self._subnetpool['name'])
 
             parent_subnet_id = blockFromIpam
@@ -276,13 +303,16 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
             current_pools = set()
             new_pools = set()
             for p in r_json:
-                a = netaddr.IPRange(long(p['start_ip_addr'],16),long(p['end_ip_addr'],16))
-                LOG.info("Add to current_pools : "+str(a))
+                # p['start_ip_addr'] and p['end_ip_addr'] are stored as strings
+                # representing integers in base 16 in the original implementation.
+                # Use int(..., 16) on Python 3 instead of long(..., 16).
+                a = netaddr.IPRange(int(p['start_ip_addr'], 16), int(p['end_ip_addr'], 16))
+                LOG.info('Add to current_pools : %s', a)
                 current_pools.add(a)
             for p in subnet_from_request.pools:
                 start_ip,_,end_ip = str(p).partition('-')
                 a = netaddr.IPRange(start_ip,end_ip)
-                LOG.info("Add to new_pools : "+str(a))
+                LOG.info('Add to new_pools : %s', a)
                 new_pools.add(a)
 
 
@@ -319,13 +349,13 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
                 ipv6_addr_start = eip_rest.add_columns(p['start_ip6_addr'])
                 ipv6_addr_end   =  eip_rest.add_columns(p['end_ip6_addr'])
                 a = netaddr.IPRange(ipv6_addr_start,ipv6_addr_end)
-                LOG.info("Add to current_pools : "+str(a))
+                LOG.info('Add to current_pools : %s', a)
                 current_pools.add(a)
 
             for p in subnet_from_request.pools:
                 start_ip,_,end_ip = str(p).partition('-')
                 a = netaddr.IPRange(start_ip,end_ip)
-                LOG.info("Add to new_pools : "+str(a))
+                LOG.info('Add to new_pools : %s', a)
                 new_pools.add(a)
 
 
@@ -365,7 +395,7 @@ class eipPool(neutron_subnet_alloc.SubnetAllocator):
             r = eip_rest.delete_subnet_v6(self.sitename,subnet_addr,subnet_prefix)
 
         if r is None:
-            LOG.error("Failed : to retrieve "+subnet_id+" in IPAM")
+            LOG.error('Failed to retrieve %s in IPAM', subnet_id)
             raise neutron_lib_exc.SubnetNotFound(subnet_id=subnet_id)
 
 
@@ -445,11 +475,11 @@ class eipSubnet(driver.Subnet):
                 if freeAddr is None:
                     raise ipam_exc.IpAddressGenerationFailure(subnet_id=subnetFromIpam['subnet_id'])
 
-                LOG.info("Address "+str(freeAddr)+" will be allocated")
+                LOG.info('Address %s will be allocated', freeAddr)
 
                 res = eip_rest.allocate_address_v4(self.sitename,freeAddr,address_request.name,address_request.mac)
                 if res is None:
-                    LOG.error("Failed to allocate "+str(freeAddr))
+                    LOG.error('Failed to allocate %s', freeAddr)
                     raise ipam_exc.IpAddressAlreadyAllocated(ip=str(freeAddr), subnet_id=subnetFromIpam['subnet_id'])
 
             if self.subnet_json['ip_version'] == 6:
@@ -460,16 +490,16 @@ class eipSubnet(driver.Subnet):
                 if freeAddr is None:
                     raise ipam_exc.IpAddressGenerationFailure(subnet_id=subnetFromIpam['subnet6_id'])
 
-                LOG.info("Address "+str(freeAddr)+" will be allocated")
+                LOG.info('Address %s will be allocated', freeAddr)
 
                 res = eip_rest.allocate_address_v6(self.sitename,freeAddr,address_request.name,address_request.mac)
                 if res is None:
-                    LOG.error("Failed to allocate "+str(freeAddr))
+                    LOG.error('Failed to allocate %s', freeAddr)
                     raise ipam_exc.IpAddressAlreadyAllocated(ip=str(freeAddr), subnet_id=subnetFromIpam['subnet6_id'])
             addressToReturn = freeAddr
 
         else:
-            LOG.error("Address has no type " + str(type(address_request)))
+            LOG.error('Address has no type %s', type(address_request))
 
 
         return str(netaddr.IPAddress(addressToReturn))
@@ -485,7 +515,7 @@ class eipSubnet(driver.Subnet):
         :raises: IPAMAllocationNotFound
         """
 
-        LOG.info("Trying to deallocate : "+str(address))
+        LOG.info('Trying to deallocate: %s', address)
 
         if self.subnet_json['ip_version'] == 4:
             ret = eip_rest.deallocate_address_v4(self.sitename,address)

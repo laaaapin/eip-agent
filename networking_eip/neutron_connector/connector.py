@@ -13,6 +13,7 @@
 #   limitations under the License.
 
 import os
+import logging
 from oslo_config import cfg
 from keystoneauth1 import identity
 from keystoneauth1 import session
@@ -86,6 +87,21 @@ class NeutronConnector(object):
     def get_connector(self):
         return NeutronConnector.__instance.connector
 
+    def list_resource(self, resource, **kwargs):
+        """Safe wrapper around neutronclient list_<resource> calls.
+
+        Returns the result of the underlying client call or None on error.
+        Logs exceptions with context for easier debugging.
+        """
+        LOG = logging.getLogger('networking_eip.neutron_connector')
+        try:
+            conn = self.get_connector()
+            func = getattr(conn, 'list_' + resource)
+            return func(**kwargs)
+        except Exception:
+            LOG.exception('Failed to list %s with args %s', resource, kwargs)
+            return None
+
 
     def __str__(self):
         return str(NeutronConnector.__instance)
@@ -113,10 +129,20 @@ class NeutronConnector(object):
 
 
 if __name__== '__main__':
+    # Simple runnable diagnostics when executed directly
+    logging.basicConfig(level=logging.INFO)
+    LOG = logging.getLogger('networking_eip.neutron_connector')
     n = NeutronConnector()
-    print (n)
-    print (n.get_connector().list_subnets())
+    LOG.info('%s', n)
+    try:
+        LOG.info('%s', n.get_connector().list_subnets())
+    except Exception:
+        LOG.exception('failed to list subnets')
 
-    n = NeutronConnector()
-    print (n)
-    print (n.get_connector().list_subnets())
+    # second instance (singleton) sanity-check
+    n2 = NeutronConnector()
+    LOG.info('%s', n2)
+    try:
+        LOG.info('%s', n2.get_connector().list_subnets())
+    except Exception:
+        LOG.exception('failed to list subnets (second instance)')
