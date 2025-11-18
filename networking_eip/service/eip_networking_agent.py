@@ -34,17 +34,29 @@ DOMAIN="neutronNotifs"
 # configuration (we read Neutron's config by default per README instructions).
 # This parses CLI args and loads /etc/neutron/neutron.conf so the
 # [oslo_messaging_notifications] settings are available to get_notification_transport.
-# Register a debug option so users can pass --debug to enable verbose logging
-debug_opt = cfg.BoolOpt('debug', default=False, help='Enable debug logging for agent and EIP REST calls')
-cfg.CONF.register_opt(debug_opt)
+# The oslo.log common CLI options already include a `--debug` flag
+# (registered via logging.register_options). Avoid registering our own
+# `debug` option which would collide and raise DuplicateOptError.
+# If you want a separate flag, use a distinct name like `eip_debug`.
+
+# Register oslo.log CLI options before parsing arguments so they can be
+# recognised by cfg.CONF when we parse CLI args below. Registering them
+# after parsing raises oslo_config.cfg.ArgsAlreadyParsedError.
+logging.register_options(cfg.CONF)
 
 # Parse CLI and config files
 cfg.CONF(sys.argv[1:], project='neutron', default_config_files=['/etc/neutron/neutron.conf'])
 
 # optional: override log file if running under kolla/containerized setups
-cfg.CONF.log_file = '/var/log/kolla/eipNotifs.log'
-logging.register_options(cfg.CONF)
+# Do NOT force a log file for local/dev runs — forcing '/var/log/...' can
+# cause logs to be written to a file you don't see and make the process
+# appear to produce "no output". If you're running under kolla or a
+# containerized environment, configure this externally instead.
+# cfg.CONF.log_file = '/var/log/kolla/eipNotifs.log'
 logging.setup(cfg.CONF, DOMAIN)
+
+# Emit a startup log so local runs show something immediately in stdout/stderr
+LOG.info('eip_networking_agent starting (debug=%s)', getattr(cfg.CONF, 'debug', False))
 
 # If debug flag is set, enable debug logging for oslo.messaging and module loggers
 if getattr(cfg.CONF, 'debug', False):
@@ -213,8 +225,11 @@ class EipNetworkingAgentService(service.ServiceBase):
 
 
 def main():
-## doc says that we should use more than 1 worker
-    launcher = service.launch(cfg.CONF,EipNetworkingAgentService(),workers=4)
+    # For local debugging, avoid starting multiple worker processes which
+    # may fork/daemonize and send logs to child processes. Use a safer
+    # default of 1 worker unless a different count is provided in config.
+    workers = getattr(cfg.CONF, 'workers', 1)
+    launcher = service.launch(cfg.CONF, EipNetworkingAgentService(), workers=workers)
     launcher.wait()
 
 
