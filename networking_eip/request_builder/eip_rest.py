@@ -26,7 +26,9 @@ LOG = logging.getLogger(__name__)
 
 def _debug_enabled():
     try:
-        return bool(getattr(cfg.CONF, 'debug', False))
+        # Use the agent-specific flag to avoid colliding with oslo.log's
+        # global --debug option.
+        return bool(getattr(cfg.CONF, 'eip_debug', False))
     except Exception:
         return False
 

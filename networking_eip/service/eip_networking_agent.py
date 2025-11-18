@@ -44,6 +44,12 @@ DOMAIN="neutronNotifs"
 # after parsing raises oslo_config.cfg.ArgsAlreadyParsedError.
 logging.register_options(cfg.CONF)
 
+# Add an agent-specific debug flag that doesn't collide with oslo.log's
+# common `--debug`. This lets users enable extra debugging only for the
+# eip agent (e.g. REST call tracing) via `--eip_debug`.
+eip_debug_opt = cfg.BoolOpt('eip_debug', default=False, help='Enable EIP agent specific debug logging and REST tracing')
+cfg.CONF.register_cli_opt(eip_debug_opt)
+
 # Parse CLI and config files
 cfg.CONF(sys.argv[1:], project='neutron', default_config_files=['/etc/neutron/neutron.conf'])
 
@@ -56,10 +62,10 @@ cfg.CONF.log_file = '/var/log/kolla/eipNotifs.log'
 logging.setup(cfg.CONF, DOMAIN)
 
 # Emit a startup log so local runs show something immediately in stdout/stderr
-LOG.info('eip_networking_agent starting (debug=%s)', getattr(cfg.CONF, 'debug', False))
+LOG.info('eip_networking_agent starting (eip_debug=%s)', getattr(cfg.CONF, 'eip_debug', False))
 
 # If debug flag is set, enable debug logging for oslo.messaging and module loggers
-if getattr(cfg.CONF, 'debug', False):
+if getattr(cfg.CONF, 'eip_debug', False):
     # set root logger to DEBUG
     import logging as _std_logging
     _std_logging.getLogger().setLevel(_std_logging.DEBUG)
