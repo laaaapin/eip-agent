@@ -52,7 +52,7 @@ cfg.CONF(sys.argv[1:], project='neutron', default_config_files=['/etc/neutron/ne
 # cause logs to be written to a file you don't see and make the process
 # appear to produce "no output". If you're running under kolla or a
 # containerized environment, configure this externally instead.
-# cfg.CONF.log_file = '/var/log/kolla/eipNotifs.log'
+cfg.CONF.log_file = '/var/log/kolla/eipNotifs.log'
 logging.setup(cfg.CONF, DOMAIN)
 
 # Emit a startup log so local runs show something immediately in stdout/stderr
