@@ -16,6 +16,7 @@ import eventlet
 eventlet.monkey_patch()
 
 import time
+import sys
 from oslo_config import cfg
 from oslo_service import service
 from oslo_log import log as logging
@@ -29,9 +30,16 @@ LOG=logging.getLogger("eipAgent")
 
 DOMAIN="neutronNotifs"
 
+# Initialize oslo.config so oslo.messaging can pick up the notification
+# configuration (we read Neutron's config by default per README instructions).
+# This parses CLI args and loads /etc/neutron/neutron.conf so the
+# [oslo_messaging_notifications] settings are available to get_notification_transport.
+cfg.CONF(sys.argv[1:], project='neutron', default_config_files=['/etc/neutron/neutron.conf'])
+
+# optional: override log file if running under kolla/containerized setups
 cfg.CONF.log_file = '/var/log/kolla/eipNotifs.log'
 logging.register_options(cfg.CONF)
-logging.setup(cfg.CONF,DOMAIN)
+logging.setup(cfg.CONF, DOMAIN)
 
 
 def create_addr_scope_handler(payload):
