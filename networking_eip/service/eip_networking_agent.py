@@ -73,6 +73,13 @@ if getattr(cfg.CONF, 'eip_debug', False):
     _std_logging.getLogger('oslo.messaging').setLevel(_std_logging.DEBUG)
 
 
+def _eip_debug_enabled():
+    try:
+        return bool(getattr(cfg.CONF, 'eip_debug', False))
+    except Exception:
+        return False
+
+
 def create_addr_scope_handler(payload):
     sitename = payload['address_scope']['name']
     res = eip_rest.create_site(sitename)
@@ -143,9 +150,28 @@ class NotificationEndpoint(object):
             LOG.exception('Failed to schedule handler %s', func)
 
     def warn(self,ctxt,publisher_id,event_type,payload,metadata):
-        LOG.error('event %s ___ %s', event_type, payload)
+        # Basic error-level log for warn notifications
+        LOG.error('event %s from %s: %s', event_type, publisher_id, payload)
+        # If eip_debug is enabled, trace full message details for all publishers
+        try:
+            if _eip_debug_enabled():
+                LOG.debug('WARN notification full: publisher_id=%s event_type=%s payload=%s metadata=%s ctxt=%s',
+                          publisher_id, event_type, payload, metadata, ctxt)
+        except Exception:
+            LOG.exception('Failed to debug-log warn notification')
 
     def info(self,ctxt,publisher_id,event_type,payload,metadata):
+        # Log a concise info-level message for all notifications
+        LOG.info('notification %s from %s', event_type, publisher_id)
+
+        # If eip_debug is enabled, log full details for all notifications
+        try:
+            if _eip_debug_enabled():
+                LOG.debug('INFO notification full: publisher_id=%s event_type=%s payload=%s metadata=%s ctxt=%s',
+                          publisher_id, event_type, payload, metadata, ctxt)
+        except Exception:
+            LOG.exception('Failed to debug-log info notification')
+
         et = str(event_type)
         if et == 'address_scope.create.end':
             self._schedule_handler(create_addr_scope_handler, payload)
@@ -166,7 +192,11 @@ class EipNetworkingAgent(object):
         # loop: asyncio event loop where handlers will be scheduled
         try:
             self.transport = oslo_messaging.get_notification_transport(cfg.CONF)
+            if _eip_debug_enabled():
+                LOG.debug('oslo.messaging transport created: %s', self.transport)
             self.targets = [ oslo_messaging.Target(topic='notifications') ]
+            if _eip_debug_enabled():
+                LOG.debug('EipNetworkingAgent targets: %s', self.targets)
             self.endpoints = [ NotificationEndpoint(loop) ]
             # Use threading executor for the oslo listener; handlers are
             # scheduled onto the asyncio loop's executor (threadpool).
