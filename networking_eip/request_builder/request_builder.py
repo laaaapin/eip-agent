@@ -46,12 +46,7 @@ class requestBuilder(object):
         if not requestBuilder.server_params:
             requestBuilder.setParams()
 
-        if 'find_free' in query:
-            service_type = 'rpc'
-        else:
-            service_type = 'rest'
-
-        url = "https://"+requestBuilder.server_params['address']+'/'+service_type+'/'+query
+        url = "https://"+requestBuilder.server_params['address']+'/api/v2.0/ipam/'+query
         headers= {
                 'x-ipm-username':requestBuilder.server_params['username'],
                 'x-ipm-password':requestBuilder.server_params['password'],
